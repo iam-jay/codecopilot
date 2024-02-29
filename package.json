@@ -1,0 +1,47 @@
+{
+  "name": "codecopilot",
+  "displayName": "Codecopilot",
+  "description": "Codecopilot extension for VS Code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "keybindings": [
+      {
+          "command": "editor.action.insertSnippet",
+          "key": "Tab",
+          "when": "editorTextFocus && !editorReadonly"
+      }
+    ],
+    "commands": [
+      {
+        "command": "codecopilot.startChat",
+        "title": "Start Chat"
+      },
+      {
+        "command": "codecopilot.insertSuggestion",
+        "title": "Insert Suggestion"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "typescript": "^4.5.4"
+  },
+  "dependencies": {
+    "@azure/openai": "^1.0.0-beta.11",
+    "azure-openai": "^0.9.4",
+    "openai": "^4.28.0"
+  }
+}
