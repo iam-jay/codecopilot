@@ -39,7 +39,7 @@ function activate(context) {
     };
 
     // Attach listener for text document changes
-    vscode.workspace.onDidChangeTextDocument(event => {
+    vscode.workspace.onDidChangeTextDocument(async event => {
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
             const language = getLanguage();
@@ -47,23 +47,29 @@ function activate(context) {
             const line = activeEditor.document.lineAt(activeEditor.selection.active.line).text;
 
             // Check if the line starts with a specific comment marker
-            if (line.startsWith('// codecopilot suggest')) {
-                // Extract the message and trigger suggestion request
-                const message = line.replace('codecopilot suggest', '').trim();
-                requestSuggestion(language, message);
-            }else {
-                // If not, check for space key presses
+            if (line.includes('codecopilot suggest')) {
+                // Check if the Tab key was pressed in the last change
                 const lastChange = event.contentChanges[event.contentChanges.length - 1];
-                const typedChar = lastChange.text;
-
-                if (typedChar.includes(' ')) {
-                    // Extract the input before the space
-                    const input = fullContent.substr(0, activeEditor.selection.active.character).trim();
-    
-                    // Trigger suggestion request for the input
-                    requestSuggestion(language, input);
+                const pressedEnter = lastChange.text.includes('\n');
+                if (pressedEnter) {
+                    // Extract the message and trigger suggestion request
+                    const message = line.replace('codecopilot suggest', '').trim();
+                    requestSuggestion(language, message);
                 }
             }
+            // else {
+            //     // If not, check for space key presses
+            //     const lastChange = event.contentChanges[event.contentChanges.length - 1];
+            //     const typedChar = lastChange.text;
+
+            //     if (typedChar.includes(' ')) {
+            //         // Extract the input before the space
+            //         const input = fullContent.substr(0, activeEditor.selection.active.character).trim();
+    
+            //         // Trigger suggestion request for the input
+            //         requestSuggestion(language, input);
+            //     }
+            // }
         }
     }, null, context.subscriptions);
 
@@ -83,25 +89,122 @@ function activate(context) {
     context.subscriptions.push(vscode.commands.registerTextEditorCommand('editor.action.insertSnippet', (editor, edit, args) => {
         insertSuggestion(editor, edit, args);
     }));
-    context.subscriptions.push(vscode.commands.registerTextEditorCommand('editor.action.triggerSuggest', onCompletionHandler));
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { scheme: 'file', language: '*' },
+            new YourCompletionProvider(),
+            // Trigger on specific delimiter characters
+            '.', ',', ';', ':',' ', '=', '\\', '/' // Add more delimiters as needed
+        )
+    );
     console.log('Codecopilot extension activated.');
 }
 
-async function onCompletionHandler() {
-    console.log("onCompletionHandler triggered!");
-
+function getCurrentLanguage (){
     const activeEditor = vscode.window.activeTextEditor;
-    if (activeEditor && globalSuggestion) {
-        console.log("Inserting suggestion:", globalSuggestion);
+    if (activeEditor) {
+        const fileName = activeEditor.document.fileName;
+        const fileExtension = fileName.split('.').pop();
+        return languageMap[fileExtension] || null;
+    }
+    return null;
+};
 
-        // Insert the suggestion at the current cursor position
-        await activeEditor.edit(editBuilder => {
-            const position = activeEditor.selection.active;
-            const range = new vscode.Range(position.with(undefined, 0), position);
-            editBuilder.replace(range, globalSuggestion);
-        });
+function extractActualCodes(response) {
+    const codeBlockStart = '```';
+    const codeBlockEnd = '```';
+
+    const startIndex = response.indexOf(codeBlockStart);
+    const endIndex = response.indexOf(codeBlockEnd, startIndex + codeBlockStart.length);
+
+    if (startIndex !== -1 && endIndex !== -1) {
+        // Extract the code block content excluding the first line between code blocks
+        const codeBlockContent = response
+            .substring(startIndex + codeBlockStart.length, endIndex)
+            .split('\n') // Split by newlines
+            .filter((line, index) => index !== 0) // Exclude the second line
+            .join('\n')
+            .trim();
+
+        return codeBlockContent;
+    }
+    else if(startIndex !== -1){
+        const codeBlockContent = response
+        .substring(startIndex + codeBlockStart.length, response.length-1)
+        .split('\n') // Split by newlines
+        .filter((line, index) => index !== 0) // Exclude the second line
+        .join('\n')
+        .trim();
+
+        return codeBlockContent; 
+    }
+
+    return null;
+}
+
+class YourCompletionProvider {
+    async provideCompletionItems(document, position, token, context) {
+
+        const fullContent = document.getText();
+        // Get the current line of text before the cursor position
+        const linePrefix = document.lineAt(position).text.substr(0, position.character);
+
+        // Check if the line contains any of the specified delimiters
+        if (linePrefix.includes('.') || linePrefix.includes(',') || linePrefix.includes(';') || linePrefix.includes(':') || linePrefix.includes(' ') || linePrefix.includes('=') || linePrefix.includes('\\') || linePrefix.includes('/')) {
+            // Return completion items
+            const suggestions = await getCodeCompletion(fullContent);
+            return await this.getCompletionItems(suggestions);
+        }
+
+        return [];
+    }
+
+    async getCompletionItems(suggestions) {
+        // let completionItems = [];
+        // for(suggestion in suggestions){
+        //     console.log(suggestion);
+        //     completionItems.push(new vscode.CompletionItem(suggestion));
+        //     console.log('suggestion added for completion');
+        // }
+        // console.log(completionItems);
+        // return completionItems;
+        const completionItems = await Promise.all(suggestions.map(suggestion => {
+            console.log(suggestion);
+            const completionItem = new vscode.CompletionItem(suggestion);
+            console.log('suggestion added for completion');
+            // Customize additional properties of the completion item if needed
+            return completionItem;
+        }));
+        console.log(completionItems);
+        return completionItems;
+
+        // const completionItems = [
+        //     new vscode.CompletionItem('CompletionItem1/'),
+        //     new vscode.CompletionItem('CompletionItem2>'),
+        //     // Add more completion items as needed
+        // ];
+
+        // return completionItems;
     }
 }
+
+// check if line is comment or not
+// async function isLineComment(line, language) {
+//     // Use the languages module to get comment tokens for the current language
+//     const languageConfig = vscode.languages.getConfiguration(language);
+
+//     if (languageConfig) {
+//         // Check if there are line comment tokens in the language configuration
+//         const commentTokens = languageConfig.get('comments.lineComment');
+        
+//         if (commentTokens && Array.isArray(commentTokens)) {
+//             // Check if the line starts with any of the comment tokens
+//             return commentTokens.some(token => line.trimLeft().startsWith(token));
+//         }
+//     }
+
+//     return false;
+// }
 
 
 // Function to handle suggestion request
@@ -115,6 +218,28 @@ async function requestSuggestion(language, message) {
         vscode.window.showInformationMessage(`Suggestion received: ${suggestion}`);
     } catch (error) {
         console.error('Error fetching suggestions:', error.message);
+    }
+}
+
+async function getCodeCompletion(prompt) {
+    try {
+        const language = getCurrentLanguage();
+        prompt = "give possible words to auto complete. For your context code till here is " + prompt + " in " + language;
+        const messages = [
+            { role: 'system', content: 'You are a code completioner. Talk like that. When I ask give me code auto complete. always return only autocomplete code suggestions in arra format. Do not return any extra text' },
+            { role: 'user', content: prompt },
+        ];
+        const result = await client.getChatCompletions(deploymentId, messages, { maxTokens: 128 });
+        const content =  result.choices[0]['message']['content'];
+        vscode.window.showInformationMessage(`Result received: ${content}`);
+        if(Array.isArray(content)){
+            return content;
+        }else{
+            return JSON.parse(content);
+        }
+    } catch (error) {
+        console.error('Error fetching chat suggestions:', error.message);
+        return [];
     }
 }
 
@@ -136,7 +261,7 @@ async function getCodeSuggestions(language, prompt) {
 function storeSuggestion(language, suggestion) {
     // Your logic to store the suggestion based on language
     // For example, let's store it globally for simplicity
-    globalSuggestion = suggestion;
+    globalSuggestion = extractActualCodes(suggestion);
 }
 
 // Function to handle tab press and insert suggestion
@@ -149,6 +274,7 @@ async function insertSuggestion() {
         await activeEditor.edit(editBuilder => {
             editBuilder.insert(activeEditor.selection.active, globalSuggestion);
         });
+        globalSuggestion = '';
     }
 }
 
@@ -310,5 +436,5 @@ class ChatPanel {
 }
 
 module.exports = {
-    activate
+    activate, YourCompletionProvider
 };
