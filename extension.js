@@ -373,6 +373,30 @@ class ChatPanel {
                         padding: 10px; /* Set your preferred padding */
                         font-size: 16px; /* Set your preferred font size */
                     }
+
+                    #chat-container div {
+                        margin-bottom: 8px;
+                    }
+
+                    .user-message {
+                        font-weight: bold;
+                        color: blue; /* Set your preferred color */
+                    }
+
+                    .chatgpt-message {
+                        font-weight: bold;
+                        color: green; /* Set your preferred color */
+                    }
+
+                    code {
+                        display: block;
+                        white-space: pre-wrap;
+                        background-color: #f0f0f0; /* Set your preferred background color */
+                        padding: 10px;
+                        margin: 10px 0;
+                        border-radius: 5px;
+                        font-family: 'Courier New', Courier, monospace; /* Set your preferred font-family */
+                    }
                 </style>
                 <script>
                     const vscode = acquireVsCodeApi();
@@ -383,14 +407,24 @@ class ChatPanel {
     
                         if (userMessage !== '') {
                             const chatContainer = document.getElementById('chat-container');
-                            chatContainer.innerHTML += '<div>User: ' + userMessage + '</div>';
+                            chatContainer.innerHTML += '<div class="user-message">User: ' + userMessage + '</div>';
     
                             try {
                                 // Call the API to get chat suggestions
-                                const suggestions = await vscode.postMessage({ command: 'getChatSuggestions', message: userMessage });
+                                //const suggestions = await vscode.postMessage({ command: 'getChatSuggestions', message: userMessage });
+
+                                const suggestions = await new Promise(resolve => {
+                                    vscode.postMessage({ command: 'getChatSuggestions', message: userMessage });
+                                    // Listen for the response
+                                    window.addEventListener('message', event => {
+                                        if (event.data.command === 'receiveChatSuggestions') {
+                                            resolve(event.data.suggestions);
+                                        }
+                                    });
+                                });
                     
                                 // Display suggestions in the chat container
-                                // receiveChatSuggestions(suggestions);
+                                receiveChatSuggestions(suggestions);
                             } catch (error) {
                                 console.error('Error calling getChatSuggestions:', error.message);
                             }
@@ -408,7 +442,7 @@ class ChatPanel {
                         // Clear previous suggestions
                         // chatContainer.innerHTML = '';
                         // Display new suggestions
-                        chatContainer.innerHTML += '<div>ChatGPT: ' + suggestions + '</div>';
+                        chatContainer.innerHTML += '<div class="chatgpt-message">ChatGPT: <code>' + suggestions + '</code></div>';
                         
                     }
                 </script>
