@@ -3,12 +3,14 @@ const vscode = require('vscode');
 //const { OpenAI } = require('openai');
 //process.env.OPENAI_API_KEY = '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'; // Replace with your actual OpenAI API key
 //const openai = new OpenAI();
-
+const util = require('util');
+const exec = util.promisify(require('child_process').exec);
+const path = require('path');
 const { OpenAIClient, AzureKeyCredential } = require("@azure/openai");
 
 
-const endpoint = "https://msec-hackathon-australia-east.openai.azure.com/";
-const credential = new AzureKeyCredential("5117412d767641e09b3c715e78991084");
+const endpoint = "";
+const credential = new AzureKeyCredential("");
 const deploymentId = "gpt-4-32k";
 const client = new OpenAIClient(endpoint,credential);
 
@@ -94,7 +96,7 @@ function activate(context) {
             { scheme: 'file', language: '*' },
             new YourCompletionProvider(),
             // Trigger on specific delimiter characters
-            '.', ',', ';', ':',' ', '=', '\\', '/' // Add more delimiters as needed
+            '.' // Add more delimiters as needed
         )
     );
     console.log('Codecopilot extension activated.');
@@ -110,6 +112,20 @@ function getCurrentLanguage (){
     return null;
 };
 
+// get suggestion by running python script
+async function getSuggestionsFromPythonScript(prompt) {
+    const pythonScriptPath = path.resolve(__dirname, '../starter_code.py');  // Update with the actual path
+    const command = `python ${pythonScriptPath} "${prompt}"`;
+    console.log("python prompt: ", prompt);
+    try {
+        const { stdout } = await exec(command);
+        const suggestions = stdout.trim();
+        return suggestions;
+    } catch (error) {
+        console.error(`Error executing Python script: ${error.message}`);
+        return [];
+    }
+}
 function extractActualCodes(response) {
     const codeBlockStart = '```';
     const codeBlockEnd = '```';
@@ -144,19 +160,27 @@ function extractActualCodes(response) {
 
 class YourCompletionProvider {
     async provideCompletionItems(document, position, token, context) {
+        // console.log('Autocompletion requested.');
+        // const completionItems = [
+        //     new vscode.CompletionItem('CompletionItem1'),
+        //     new vscode.CompletionItem('CompletionItem2'),
+        //     // Add more completion items as needed
+        // ];
+
+        // return completionItems;
 
         const fullContent = document.getText();
         // Get the current line of text before the cursor position
         const linePrefix = document.lineAt(position).text.substr(0, position.character);
 
         // Check if the line contains any of the specified delimiters
-        if (linePrefix.includes('.') || linePrefix.includes(',') || linePrefix.includes(';') || linePrefix.includes(':') || linePrefix.includes(' ') || linePrefix.includes('=') || linePrefix.includes('\\') || linePrefix.includes('/')) {
+        if (linePrefix.includes('.')) {
             // Return completion items
-            const suggestions = await getCodeCompletion(fullContent);
+            const suggestions = await getCodeCompletion(linePrefix);
             return await this.getCompletionItems(suggestions);
         }
 
-        return [];
+        // return [];
     }
 
     async getCompletionItems(suggestions) {
@@ -183,7 +207,7 @@ class YourCompletionProvider {
         //     new vscode.CompletionItem('CompletionItem2>'),
         //     // Add more completion items as needed
         // ];
-
+        // console.log(completionItems);
         // return completionItems;
     }
 }
@@ -207,6 +231,40 @@ class YourCompletionProvider {
 // }
 
 
+// Function to make the  request to local server to get suggestion
+async function getSuggestionFRomServer(message) {
+    const url = 'http://127.0.0.1:808/getsuggestion'; // Replace with your actual Flask server URL
+
+    // JSON data to be sent in the request body
+    const data = {
+        prompt: message
+    };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data),
+        });
+
+        // Check if the request was successful (status code 2xx)
+        if (response.ok) {
+            const jsonResponse = await response.json();
+            const suggestion = jsonResponse.suggestion;
+            console.log('Responses suggestion:', suggestion);
+            return suggestion;
+        } else {
+            console.error('Error:', response.status, response.statusText);
+        }
+    } catch (error) {
+        console.error('An error occurred:', error);
+    }
+}
+
+
+
 // Function to handle suggestion request
 async function requestSuggestion(language, message) {
     try {
@@ -223,14 +281,17 @@ async function requestSuggestion(language, message) {
 
 async function getCodeCompletion(prompt) {
     try {
-        const language = getCurrentLanguage();
-        prompt = "give possible words to auto complete. For your context code till here is " + prompt + " in " + language;
-        const messages = [
-            { role: 'system', content: 'You are a code completioner. Talk like that. When I ask give me code auto complete. always return only autocomplete code suggestions in arra format. Do not return any extra text' },
-            { role: 'user', content: prompt },
-        ];
-        const result = await client.getChatCompletions(deploymentId, messages, { maxTokens: 128 });
-        const content =  result.choices[0]['message']['content'];
+        prepromt = `What all different Property Name tags starts with the prefix equal to the ${prompt} delimited by triple backticks. Please give only top 30 in formate of array with only postfix`;
+        // const language = getCurrentLanguage();
+        // prompt = "give possible words to auto complete. For your context code till here is " + prompt + " in " + language;
+        // const messages = [
+        //     { role: 'system', content: 'You are a code completioner. Talk like that. When I ask give me code auto complete. always return only autocomplete code suggestions in arra format. Do not return any extra text' },
+        //     { role: 'user', content: prompt },
+        // ];
+        //const result = await client.getChatCompletions(deploymentId, messages, { maxTokens: 128 });
+        //const content =  result.choices[0]['message']['content'];
+        const content = await getSuggestionFRomServer(prepromt);
+        // const content = ["Hello", "Hi", "HiFi"];
         vscode.window.showInformationMessage(`Result received: ${content}`);
         if(Array.isArray(content)){
             return content;
@@ -245,13 +306,16 @@ async function getCodeCompletion(prompt) {
 
 async function getCodeSuggestions(language, prompt) {
     try {
-        prompt = "give code for " + prompt + "in " + language;
-        const messages = [
-                { role: 'system', content: 'You are AI and trained in all programming lanagues. When I ask for code only code and comments in that no explanation.' },
-                { role: 'user', content: prompt },
-            ];
-        const result = await client.getChatCompletions(deploymentId, messages, { maxTokens: 128 });
-        return result.choices[0]['message']['content'];
+        prompt = "give code for " + prompt + "in " + language + ". Please return code no explanation required.";
+        // const messages = [
+        //         { role: 'system', content: 'You are AI and trained in all programming lanagues. When I ask for code only code and comments in that no explanation.' },
+        //         { role: 'user', content: prompt },
+        //     ];
+        // const result = await client.getChatCompletions(deploymentId, messages, { maxTokens: 128 });
+        // return result.choices[0]['message']['content'];
+        const content = await getSuggestionFRomServer(prompt);
+        vscode.window.showInformationMessage(`Suggestion received: ${content}`);
+        return content
     } catch (error) {
         console.error('Error fetching chat suggestions:', error.message);
         return [];
@@ -328,8 +392,9 @@ class ChatPanel {
                     { role: 'system', content: 'You are AI trained to give all answers.' },
                     { role: 'user', content: prompt },
                 ];
-            const result = await client.getChatCompletions(deploymentId, messages, { maxTokens: 128 });
-            return result.choices[0]['message']['content'];
+            // const result = await client.getChatCompletions(deploymentId, messages, { maxTokens: 128 });
+            // return result.choices[0]['message']['content'];
+            return await getSuggestionFRomServer(prompt);
         } catch (error) {
             console.error('Error fetching chat suggestions:', error.message);
             return [];
@@ -391,7 +456,7 @@ class ChatPanel {
                     code {
                         display: block;
                         white-space: pre-wrap;
-                        background-color: #f0f0f0; /* Set your preferred background color */
+                        background-color: #a69897; /* Set your preferred background color */
                         padding: 10px;
                         margin: 10px 0;
                         border-radius: 5px;
